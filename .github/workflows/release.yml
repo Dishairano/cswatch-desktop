@@ -73,20 +73,36 @@ jobs:
         id: ver
         run: echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
 
+      - name: Flatten artifacts
+        # upload-artifact@v4 strips common parent dirs, so the download lands
+        # at artifacts/<artifact-name>/nsis/*.exe etc. Move everything into a
+        # flat `flat/` dir and rename spaces -> underscores so gh upload globs
+        # stay sane.
+        run: |
+          set -e
+          mkdir -p flat
+          shopt -s globstar nullglob
+          for f in artifacts/**/nsis/* artifacts/**/msi/*; do
+            base=$(basename "$f")
+            safe=$(echo "$base" | tr ' ' '_')
+            cp "$f" "flat/$safe"
+          done
+          ls -la flat/
+
       - name: Create latest.json manifest
         run: |
           set -e
           TAG="${{ steps.ver.outputs.tag }}"
           VERSION="${TAG#v}"
           NOTES="Release $TAG"
-          NSIS_EXE=$(ls artifacts/*/bundle/nsis/*.exe 2>/dev/null | head -1 || true)
-          NSIS_SIG=$(ls artifacts/*/bundle/nsis/*.sig 2>/dev/null | head -1 || true)
+          NSIS_EXE=$(ls flat/*setup*.exe 2>/dev/null | head -1 || true)
+          NSIS_SIG=$(ls flat/*setup*.exe.sig 2>/dev/null | head -1 || true)
           if [ -z "$NSIS_EXE" ] || [ -z "$NSIS_SIG" ]; then
             echo "No signed NSIS installer found; skipping latest.json"
             exit 0
           fi
           SIG=$(cat "$NSIS_SIG")
-          cat > latest.json <<EOF
+          cat > flat/latest.json <<EOF
           {
             "version": "$VERSION",
             "notes": "$NOTES",
@@ -99,7 +115,7 @@ jobs:
             }
           }
           EOF
-          cat latest.json
+          cat flat/latest.json
 
       - name: Upload to releases repo
         env:
@@ -107,21 +123,13 @@ jobs:
         run: |
           set -e
           TAG="${{ steps.ver.outputs.tag }}"
-          gh release create "$TAG" \
-            --repo Dishairano/cswatch-desktop-releases \
-            --title "$TAG" \
-            --notes "Release $TAG" \
-            --draft=false \
-            artifacts/*/bundle/nsis/*.exe \
-            artifacts/*/bundle/nsis/*.sig \
-            artifacts/*/bundle/msi/*.msi \
-            artifacts/*/bundle/msi/*.sig \
-            latest.json || \
+          gh release view "$TAG" --repo Dishairano/cswatch-desktop-releases >/dev/null 2>&1 || \
+            gh release create "$TAG" \
+              --repo Dishairano/cswatch-desktop-releases \
+              --title "$TAG" \
+              --notes "Release $TAG" \
+              --draft=false
           gh release upload "$TAG" \
             --repo Dishairano/cswatch-desktop-releases \
             --clobber \
-            artifacts/*/bundle/nsis/*.exe \
-            artifacts/*/bundle/nsis/*.sig \
-            artifacts/*/bundle/msi/*.msi \
-            artifacts/*/bundle/msi/*.sig \
-            latest.json
+            flat/*
