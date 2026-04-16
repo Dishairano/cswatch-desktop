@@ -1,0 +1,33 @@
+node_modules
+dist
+dist-ssr
+*.tsbuildinfo
+# Emitted by tsc -b from vite.config.ts (noEmit doesn't stop the node tsconfig)
+vite.config.d.ts
+vite.config.js
+vite.config.js.map
+.env
+.env.local
+.env.*.local
+
+# Tauri
+src-tauri/target
+src-tauri/gen
+src-tauri/Cargo.lock
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Signing keys (NEVER commit these)
+*.key
+*.pem
+tauri-signing-*

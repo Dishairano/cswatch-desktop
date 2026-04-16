@@ -1,0 +1,51 @@
+[package]
+name = "cswatch-desktop"
+version = "0.1.0"
+description = "CS2 desktop companion for cswatch.gg"
+authors = ["cswatch.gg"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "cswatch_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.1", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2.0"
+tauri-plugin-http = "2.0"
+tauri-plugin-notification = "2.0"
+tauri-plugin-opener = "2.0"
+tauri-plugin-shell = "2.0"
+tauri-plugin-store = "2.0"
+tauri-plugin-updater = "2.0"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = "2"
+
+# GSI HTTP listener
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "json"] }
+tower = "0.5"
+
+# HTTP client for cswatch.gg API
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Share code decoding (CS:GO standard)
+# We implement our own below to avoid pulling in heavyweight deps.
+regex = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# File paths
+dirs = "5"
+
+[features]
+default = []
