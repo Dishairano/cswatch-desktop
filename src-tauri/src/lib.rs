@@ -104,6 +104,7 @@ pub fn run() {
             settings::settings_set_api_base,
             gsi::gsi_is_connected,
             gsi::gsi_install,
+            gsi::roster_paste_status,
             console_watcher::console_watcher_toggle,
         ])
         .run(tauri::generate_context!())

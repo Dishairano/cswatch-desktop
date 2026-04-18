@@ -288,3 +288,58 @@ fn render_gsi_cfg(port: u16) -> String {
 // Keep the "unused" State type happy
 #[allow(dead_code)]
 pub(crate) fn _aliases(_: &Mutex<GsiHandle>, _: Arc<GsiHandle>) {}
+
+/// Accept raw console `status` output pasted by the user and emit a roster
+/// event. Needed because CS2's live competitive GSI withholds the allplayers
+/// block — pasting the console is the fastest escape hatch.
+#[tauri::command]
+pub async fn roster_paste_status(
+    app: AppHandle,
+    text: String,
+) -> Result<usize, String> {
+    use crate::sharecode;
+
+    let mut players: Vec<(String, String)> = Vec::new();
+    for raw in text.lines() {
+        if let Some((id, name)) = sharecode::parse_status_line(raw) {
+            if !players.iter().any(|(existing, _)| existing == &id) {
+                players.push((id, name));
+            }
+        }
+    }
+    let count = players.len();
+    if count == 0 {
+        return Err("No players parsed — paste the full `status` output (each row starts with '#')".to_string());
+    }
+
+    #[derive(serde::Serialize)]
+    struct RosterPlayer {
+        #[serde(rename = "steamId")]
+        steam_id: String,
+        name: String,
+        source: &'static str,
+    }
+
+    #[derive(serde::Serialize)]
+    struct RosterUpdate {
+        #[serde(rename = "matchId")]
+        match_id: Option<String>,
+        players: Vec<RosterPlayer>,
+        source: &'static str,
+    }
+
+    let payload = RosterUpdate {
+        match_id: None,
+        players: players
+            .into_iter()
+            .map(|(id, name)| RosterPlayer {
+                steam_id: id,
+                name,
+                source: "paste",
+            })
+            .collect(),
+        source: "paste",
+    };
+    app.emit("roster:update", &payload).map_err(|e| e.to_string())?;
+    Ok(count)
+}
