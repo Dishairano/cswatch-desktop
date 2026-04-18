@@ -92,7 +92,11 @@ jobs:
           set -e
           mkdir -p flat
           shopt -s globstar nullglob
-          for f in artifacts/**/nsis/*; do
+          # upload-artifact@v4 strips common parent dirs. With NSIS-only
+          # builds that means artifacts land as artifacts/<artifact-name>/*.
+          # Match both shapes so the workflow keeps working if we add more
+          # bundle formats back later.
+          for f in artifacts/**/*.exe artifacts/**/*.sig artifacts/**/nsis/* artifacts/**/msi/*; do
             base=$(basename "$f")
             safe=$(echo "$base" | tr ' ' '_')
             cp "$f" "flat/$safe"

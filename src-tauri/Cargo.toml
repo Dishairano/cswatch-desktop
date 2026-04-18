@@ -1,6 +1,6 @@
 [package]
 name = "cswatch-desktop"
-version = "0.1.5"
+version = "0.1.6"
 description = "CS2 desktop companion for cswatch.gg"
 authors = ["cswatch.gg"]
 edition = "2021"
