@@ -1,6 +1,6 @@
 [package]
 name = "cswatch-desktop"
-version = "0.1.3"
+version = "0.1.4"
 description = "CS2 desktop companion for cswatch.gg"
 authors = ["cswatch.gg"]
 edition = "2021"
@@ -25,7 +25,7 @@ tauri-plugin-updater = "2.0"
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "sync", "net", "fs", "io-util", "time", "signal"] }
 anyhow = "1"
 thiserror = "2"
 
@@ -49,3 +49,15 @@ dirs = "5"
 
 [features]
 default = []
+
+# Release profile tuned for CI build speed. We favour link time + codegen
+# parallelism over maximum runtime optimisation — the app is I/O bound
+# (HTTP + file watch), not compute bound, so -O3 + fat LTO saves us nothing
+# meaningful while adding 3-4 minutes to every build.
+[profile.release]
+opt-level = 2           # -O2 still produces fast code, avoids -O3 long link
+lto = false             # "fat" LTO adds minutes; we're a ~5 MB binary, meh
+codegen-units = 16      # max parallelism across cores
+strip = "symbols"       # smaller binaries + faster link
+incremental = false     # incremental adds metadata overhead for CI builds
+debug = false           # no DWARF in release
