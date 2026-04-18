@@ -46,6 +46,11 @@ async fn run_watcher(
 
     // Open at end-of-file so we don't re-parse historical state.
     let mut last_size: u64 = 0;
+    // Accumulator for status-block parsing across polls. CS2's `status`
+    // output in newer builds doesn't always end with `#end`, so we also
+    // flush the roster after a short quiet period — see flush logic below.
+    let mut pending_roster: Vec<(String, String)> = Vec::new();
+    let mut last_roster_line_at = std::time::Instant::now();
 
     loop {
         if stop.load(Ordering::Relaxed) {
@@ -70,9 +75,18 @@ async fn run_watcher(
         }
 
         if size > last_size {
-            if let Err(err) = read_new_lines(&app, &path, &mut last_size).await {
+            if let Err(err) = read_new_lines(&app, &path, &mut last_size, &mut pending_roster, &mut last_roster_line_at).await {
                 tracing::warn!(?err, "Failed to read console.log tail");
             }
+        }
+
+        // Quiet-period flush: the user may have typed `status` manually, in
+        // which case CS2 emits a player table without the `#end` terminator.
+        // After 1.5s without new roster lines, flush whatever we've got.
+        if !pending_roster.is_empty()
+            && last_roster_line_at.elapsed() >= Duration::from_millis(1_500)
+        {
+            emit_roster(&app, std::mem::take(&mut pending_roster));
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -85,6 +99,8 @@ async fn read_new_lines(
     app: &AppHandle,
     path: &PathBuf,
     offset: &mut u64,
+    pending_roster: &mut Vec<(String, String)>,
+    last_roster_line_at: &mut std::time::Instant,
 ) -> anyhow::Result<()> {
     // Run the blocking file I/O on a dedicated thread.
     let path = path.clone();
@@ -110,7 +126,6 @@ async fn read_new_lines(
 
     *offset = new_offset;
 
-    let mut roster: Vec<(String, String)> = Vec::new();
     let mut sharecodes: Vec<String> = Vec::new();
 
     for raw in lines {
@@ -124,20 +139,19 @@ async fn read_new_lines(
         // `status` output lines look like:
         //   # 3 "playerName" STEAM_1:0:12345 01:23 45 0 active 64
         if let Some((steam_id, name)) = sharecode::parse_status_line(&raw) {
-            roster.push((steam_id, name));
+            // Avoid duplicates from the same status block (e.g. if the user
+            // runs status twice quickly, keep the latest 10).
+            pending_roster.retain(|(id, _)| id != &steam_id);
+            pending_roster.push((steam_id, name));
+            *last_roster_line_at = std::time::Instant::now();
         }
 
-        // A blank `status` block ends with "# end status" or "#end" — when we
-        // hit it, flush the accumulated roster to the frontend.
+        // Explicit terminator — flush immediately when CS2 closes the block.
         if raw.contains("#end") || raw.contains("# end") {
-            if !roster.is_empty() {
-                emit_roster(app, std::mem::take(&mut roster));
+            if !pending_roster.is_empty() {
+                emit_roster(app, std::mem::take(pending_roster));
             }
         }
-    }
-
-    if !roster.is_empty() {
-        emit_roster(app, roster);
     }
 
     for code in sharecodes {

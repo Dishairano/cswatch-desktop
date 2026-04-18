@@ -10,8 +10,34 @@ export function RosterPanel({ players }: Props) {
       <section className="panel roster-panel empty">
         <h2>Roster</h2>
         <p className="hint">
-          No roster detected yet. Players will appear once a match starts or
-          when the console log shows a `status` command.
+          No roster detected yet. To populate this panel:
+        </p>
+        <ol
+          className="hint"
+          style={{
+            margin: "8px 0 0",
+            paddingLeft: "20px",
+            lineHeight: "1.7",
+          }}
+        >
+          <li>
+            Add <code style={{ color: "var(--gold)" }}>-condebug</code> to CS2
+            launch options (Steam → properties)
+          </li>
+          <li>
+            Enable <code style={{ color: "var(--gold)" }}>Console watcher</code>{" "}
+            in Settings tab
+          </li>
+          <li>
+            In-game console, type <code style={{ color: "var(--gold)" }}>status</code>
+          </li>
+        </ol>
+        <p
+          className="hint"
+          style={{ marginTop: "8px", fontSize: "11px", opacity: 0.7 }}
+        >
+          Roster will auto-populate once a match starts. Manual{" "}
+          <code>status</code> commands now flush after 1.5s of quiet.
         </p>
       </section>
     );
