@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, State};
-use tokio::task::JoinHandle;
+use tauri::async_runtime::JoinHandle;
 
 use crate::sharecode;
 use crate::AppState;
@@ -26,7 +26,9 @@ pub fn spawn(app: AppHandle, path: PathBuf) -> ConsoleHandle {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_clone = stop.clone();
 
-    let join = tokio::spawn(async move {
+    // Use tauri's async runtime so this can be spawned from the setup hook
+    // (plain tokio::spawn panics there — "no reactor running").
+    let join = tauri::async_runtime::spawn(async move {
         if let Err(err) = run_watcher(app, path, stop_clone).await {
             tracing::warn!(?err, "Console watcher exited with error");
         }

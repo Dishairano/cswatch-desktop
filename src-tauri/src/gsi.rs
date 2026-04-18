@@ -18,7 +18,7 @@ use axum::{extract::State as AxState, http::StatusCode, routing::post, Json, Rou
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
+use tauri::async_runtime::JoinHandle;
 
 use crate::{AppState, SharedSettings};
 
@@ -46,7 +46,10 @@ pub fn spawn_listener(app: AppHandle, port: u16, settings: SharedSettings) -> Gs
         .with_state(ctx);
 
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
-    let join = tokio::spawn(async move {
+    // tauri::async_runtime::spawn is the runtime-aware equivalent of
+    // tokio::spawn — works both before and after Tauri's event loop starts,
+    // so it's safe from inside the `setup` hook where plain tokio panics.
+    let join = tauri::async_runtime::spawn(async move {
         tracing::info!(%addr, "GSI listener starting");
         match tokio::net::TcpListener::bind(addr).await {
             Ok(listener) => {
