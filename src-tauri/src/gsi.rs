@@ -76,6 +76,19 @@ struct GsiIncoming {
     map: Option<Map>,
     #[serde(default)]
     round: Option<Round>,
+    // CS2 sends allplayers as an object keyed by some opaque player id —
+    // the child object contains `name`, `steamid`, `team`, etc. We parse
+    // it as HashMap<String, AllPlayer> and derive a flat roster client-side.
+    #[serde(default)]
+    allplayers: Option<std::collections::HashMap<String, AllPlayer>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AllPlayer {
+    name: Option<String>,
+    #[serde(rename = "steamid")]
+    steam_id: Option<String>,
+    team: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,6 +166,55 @@ async fn gsi_handler(
 
     if let Err(err) = ctx.app.emit("gsi:update", &update) {
         tracing::warn!(?err, "Failed to emit gsi:update");
+    }
+
+    // Emit a roster derived from allplayers whenever CS2 sends it. No
+    // -condebug + no console.log required — the GSI endpoint has the full
+    // ten-player picture on every tick. We dedupe + stable-sort by steam id
+    // so downstream consumers don't flicker on tick-by-tick reorders.
+    if let Some(all) = payload.allplayers.as_ref() {
+        #[derive(Serialize)]
+        struct RosterPlayer<'a> {
+            #[serde(rename = "steamId")]
+            steam_id: String,
+            name: &'a str,
+            team: Option<&'a str>,
+            source: &'a str,
+        }
+
+        #[derive(Serialize)]
+        struct RosterUpdate<'a> {
+            #[serde(rename = "matchId")]
+            match_id: Option<&'a str>,
+            players: Vec<RosterPlayer<'a>>,
+            source: &'a str,
+        }
+
+        let mut players: Vec<RosterPlayer> = all
+            .values()
+            .filter_map(|p| {
+                let id = p.steam_id.clone()?;
+                if id.is_empty() { return None; }
+                Some(RosterPlayer {
+                    steam_id: id,
+                    name: p.name.as_deref().unwrap_or("Unknown"),
+                    team: p.team.as_deref(),
+                    source: "gsi",
+                })
+            })
+            .collect();
+        players.sort_by(|a, b| a.steam_id.cmp(&b.steam_id));
+
+        if !players.is_empty() {
+            let payload = RosterUpdate {
+                match_id: None,
+                players,
+                source: "gsi",
+            };
+            if let Err(err) = ctx.app.emit("roster:update", &payload) {
+                tracing::warn!(?err, "Failed to emit roster:update from GSI");
+            }
+        }
     }
 
     StatusCode::OK
