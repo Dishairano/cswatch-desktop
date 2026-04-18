@@ -15,22 +15,28 @@ const SETTINGS_FILE: &str = "cswatch-settings.json";
 pub struct Settings {
     /// Absolute path to the Counter-Strike 2 install directory, e.g.
     /// `C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive`.
+    #[serde(alias = "cs2_path")]
     pub cs2_path: Option<String>,
 
     /// Port the GSI HTTP listener binds to. Must match the `uri` in the
     /// generated `gamestate_integration_cswatch.cfg`.
+    #[serde(alias = "gsi_port")]
     pub gsi_port: u16,
 
     /// True once we've written the GSI config to `game/csgo/cfg/`.
+    #[serde(alias = "gsi_installed")]
     pub gsi_installed: bool,
 
     /// Absolute path to `console.log`. Derived from `cs2_path` when unset.
+    #[serde(alias = "console_log_path")]
     pub console_log_path: Option<String>,
 
     /// Whether to tail the console log for roster/sharecode extraction.
+    #[serde(alias = "console_watcher_enabled")]
     pub console_watcher_enabled: bool,
 
     /// cswatch.gg API base. Override for dev/staging.
+    #[serde(alias = "api_base")]
     pub api_base: String,
 }
 
