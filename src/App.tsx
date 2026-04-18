@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import type { GsiUpdate, RosterUpdate, Player } from "./types";
 import { RosterPanel } from "./components/RosterPanel";
 import { ScorePanel } from "./components/ScorePanel";
@@ -13,6 +14,11 @@ export default function App() {
   const [gsi, setGsi] = useState<GsiUpdate | null>(null);
   const [roster, setRoster] = useState<Player[]>([]);
   const [gsiConnected, setGsiConnected] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion(""));
+  }, []);
 
   useEffect(() => {
     const unlistenGsi = listen<GsiUpdate>("gsi:update", (event) => {
@@ -75,7 +81,7 @@ export default function App() {
 
       <footer className="footer">
         <span>
-          cswatch.gg desktop · v0.1.0 ·{" "}
+          cswatch.gg desktop{appVersion ? ` · v${appVersion}` : ""} ·{" "}
           <a href="https://cswatch.gg" target="_blank" rel="noreferrer">
             cswatch.gg
           </a>

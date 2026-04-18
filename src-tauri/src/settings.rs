@@ -11,6 +11,7 @@ use crate::AppState;
 const SETTINGS_FILE: &str = "cswatch-settings.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// Absolute path to the Counter-Strike 2 install directory, e.g.
     /// `C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive`.
