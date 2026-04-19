@@ -76,15 +76,28 @@ pub fn parse_status_line(line: &str) -> Option<(String, String)> {
         if let Some(rel_end) = trimmed[q_start + 1..].rfind('\'') {
             let q_end = rel_end + q_start + 1;
             let name = trimmed[q_start + 1..q_end].trim();
-            // Heuristic: the stuff before the name must contain "active" or a
-            // time token like "04:46" to avoid matching stray log lines.
             let head = &trimmed[..q_start];
-            let looks_like_row =
-                head.contains("active") || head.matches(':').count() >= 1 && head.len() > 8;
-            if !name.is_empty() && !name.contains('\'') && looks_like_row {
-                // Synthetic id keyed on the player name — lookup against the
-                // cswatch.gg API will fall back to name search / share-code
-                // enrichment later, so downstream code must handle this prefix.
+            let tail = &trimmed[q_end + 1..];
+
+            // Must be an "active" player row (not a config-write log line or
+            // bot/challenging row). The status table has numbers-then-"active"
+            // before the quoted name.
+            let is_player_row = head.contains(" active ")
+                && head.split_whitespace().next().map_or(false, |t| t.chars().all(|c| c.is_ascii_digit()));
+
+            // Reject filenames + paths sometimes quoted in CS2 logs.
+            let name_looks_like_file = name.contains('/')
+                || name.contains('\\')
+                || name.ends_with(".vcfg")
+                || name.ends_with(".cfg")
+                || name.ends_with("_lastclouded");
+
+            if is_player_row
+                && !name.is_empty()
+                && !name.contains('\'')
+                && !name_looks_like_file
+                && !tail.contains('\'')  // multi-quote log line, bail
+            {
                 return Some((format!("cs2name:{name}"), name.to_string()));
             }
         }
@@ -126,5 +139,19 @@ mod tests {
         let names: Vec<_> = SAMPLE.lines().filter_map(|l| parse_status_line(l).map(|(_, n)| n)).collect();
         println!("parsed: {:?}", names);
         assert_eq!(names.len(), 10, "expected 10 humans, got {}: {:?}", names.len(), names);
+    }
+
+    // Console log often contains file-write entries like:
+    //   FileSystem: .../convars slot 0 saved - 'cs2_user_convars.vcfg'
+    //   FileSystem: 'cfg/cs2_user_keys_0_slot0.vcfg' saved
+    // These previously false-matched because the heuristic only required a
+    // time-like colon in the head. Ensure they're now rejected.
+    const NOISE: &str = "[FileSystem] convars slot 0 saved - 'cs2_user_convars.vcfg'\n[FileSystem] cfg/cs2_user_keys_0_slot0.vcfg saved\n[FileSystem] cfg/cs2_user_keys_0_slot0.vcfg_lastclouded - 'cfg/cs2_user_keys_0_slot0.vcfg_lastclouded'\n[Client] saving 'cs2_user_keys.vcfg'\n[Client] 65280    04:46   34    0     active 786432 'Real Player'";
+
+    #[test]
+    fn rejects_file_write_log_lines() {
+        let names: Vec<_> = NOISE.lines().filter_map(|l| parse_status_line(l).map(|(_, n)| n)).collect();
+        println!("parsed noise: {:?}", names);
+        assert_eq!(names, vec!["Real Player".to_string()], "file-write log lines must not parse as players");
     }
 }
