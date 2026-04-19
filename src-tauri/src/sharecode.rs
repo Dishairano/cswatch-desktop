@@ -14,35 +14,83 @@ pub static SHARECODE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
         .expect("sharecode regex")
 });
 
-/// Matches a CS2 `status` output line of the form:
-///   # <userid> <steamid64> "<name>" <connected> <ping> <loss> <state> <rate>
+/// Matches a `status` player row across both CS:GO-era and live CS2 formats.
 ///
-/// Returns (steam_id64, name). CS2 moved from STEAM_X:Y:Z format to raw 64-bit
-/// IDs in the stringtable — support both just in case.
+/// CS:GO / offline / GOTV / demo (steam id exposed):
+///   # 3 <steamid64> "playerName" 01:23 45 0 active 64
+///
+/// CS2 live (no steam id — anti-cheat policy):
+///   [Client] 65285    04:46   15    0     active 786432 'GGDelta | Mr Cheng'
+///
+/// Returns (steam_id_or_synthetic, name). For live CS2 rows without a steam
+/// id, we synthesize `cs2name:<name>` so the UI can still show a roster even
+/// though lookup against cswatch.gg is impossible until a share code arrives.
 pub fn parse_status_line(line: &str) -> Option<(String, String)> {
-    let trimmed = line.trim();
-    if !trimmed.starts_with('#') {
+    // Strip CS2 log prefix tags like "[Client] " / "[EngineServiceManager] ".
+    let mut trimmed = line.trim();
+    while trimmed.starts_with('[') {
+        if let Some(end) = trimmed.find(']') {
+            trimmed = trimmed[end + 1..].trim_start();
+        } else {
+            break;
+        }
+    }
+
+    // Reject obvious header / control lines.
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("userid name")
+        || lower.starts_with("name time")
+        || lower.starts_with("id     time")
+        || lower.starts_with("# userid")
+        || lower.contains("-----")
+        || lower.contains("spawngroup")
+        || lower.contains("status -----")
+        || lower.contains("challenging")
+        || lower.contains("[nochan]")
+        || lower.contains("'demorecorder'")
+    {
         return None;
     }
-    // Quick reject for the header line "# userid name uniqueid connected ..."
-    if trimmed.contains("userid name") {
-        return None;
+
+    // Strategy 1: classic CS:GO / demo row with double-quoted name + steam id.
+    if trimmed.starts_with('#') {
+        if let Some(q_start) = trimmed.find('"') {
+            if let Some(rel_end) = trimmed[q_start + 1..].find('"') {
+                let q_end = rel_end + q_start + 1;
+                let name = &trimmed[q_start + 1..q_end];
+                let after = trimmed[q_end + 1..].trim_start();
+                if let Some(token) = after.split_whitespace().next() {
+                    if let Some(id) = parse_steam_token(token) {
+                        return Some((id, name.to_string()));
+                    }
+                }
+                // Quoted name but no resolvable steam id — fall through.
+                return Some((format!("cs2name:{name}"), name.to_string()));
+            }
+        }
     }
 
-    // Find a quoted player name
-    let q_start = trimmed.find('"')?;
-    let q_end = trimmed[q_start + 1..].find('"')? + q_start + 1;
-    let name = &trimmed[q_start + 1..q_end];
-
-    // The steam id is the next whitespace-separated token after the close quote.
-    let after = trimmed[q_end + 1..].trim_start();
-    let token = after.split_whitespace().next()?;
-
-    if let Some(id) = parse_steam_token(token) {
-        Some((id, name.to_string()))
-    } else {
-        None
+    // Strategy 2: CS2 live format with single-quoted name and no steam id
+    // column at all. Only accept rows that look like the active-player table.
+    if let Some(q_start) = trimmed.find('\'') {
+        if let Some(rel_end) = trimmed[q_start + 1..].rfind('\'') {
+            let q_end = rel_end + q_start + 1;
+            let name = trimmed[q_start + 1..q_end].trim();
+            // Heuristic: the stuff before the name must contain "active" or a
+            // time token like "04:46" to avoid matching stray log lines.
+            let head = &trimmed[..q_start];
+            let looks_like_row =
+                head.contains("active") || head.matches(':').count() >= 1 && head.len() > 8;
+            if !name.is_empty() && !name.contains('\'') && looks_like_row {
+                // Synthetic id keyed on the player name — lookup against the
+                // cswatch.gg API will fall back to name search / share-code
+                // enrichment later, so downstream code must handle this prefix.
+                return Some((format!("cs2name:{name}"), name.to_string()));
+            }
+        }
     }
+
+    None
 }
 
 fn parse_steam_token(token: &str) -> Option<String> {
@@ -66,4 +114,17 @@ fn parse_steam_token(token: &str) -> Option<String> {
         return Some((76_561_197_960_265_728 + z).to_string());
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const SAMPLE: &str = "[EngineServiceManager] ----- Status -----\n[Client] steamid  : [A:1:2065561615:49508] (90284629853861903)\n[Client] ---------players--------\n[Client]   id     time ping loss      state   rate name\n[Client] 65280    04:46   34    0     active 786432 'MaviSlime'\n[Client] 65281    04:46   10    0     active 786432 'sakka'\n[Client] 65282    04:46   15    1     active 786432 'Mr x Praezi'\n[Client] 65283    04:46   16    1     active 786432 'WehrMachtDennSoWas'\n[Client] 65284    04:46   13    0     active 786432 'B1t'\n[Client] 65285    04:45   15    0     active 786432 'GGDelta | Mr Cheng'\n[Client] 65286    04:46   29    0     active 786432 'waeit'\n[Client] 65287    04:46   16    0     active 786432 'Gesus'\n[Client] 65288    04:46   12    0     active 786432 'El ubbi-.'\n[Client] 65289    04:46   23    0     active 786432 'Palle fra Temu'\n[Client] 65535 [NoChan]    0    0 challenging      0 ''\n[Client]   12      BOT    0    0     active      0 'DemoRecorder'\n[Client] #end";
+
+    #[test]
+    fn parses_cs2_live_status() {
+        let names: Vec<_> = SAMPLE.lines().filter_map(|l| parse_status_line(l).map(|(_, n)| n)).collect();
+        println!("parsed: {:?}", names);
+        assert_eq!(names.len(), 10, "expected 10 humans, got {}: {:?}", names.len(), names);
+    }
 }
